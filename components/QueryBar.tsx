@@ -1,7 +1,19 @@
 "use client";
 
+/**
+ * QueryBar.tsx
+ *
+ * Changes from original:
+ *   - Imports useMindmapStore (now the single graph-aware store)
+ *   - handleSubmit builds a GraphNode and calls store.addNode()
+ *   - Removed addEdge() call — store.addNode() auto-creates the edge
+ *     when parentId is set (enforced by graph.ts's addNode invariant)
+ *   - selectedNodeId now comes from store.ui.selectedNodeId
+ *   - Everything else (mic, file input, animations, layout) is unchanged
+ */
+
 import React, { useEffect, useRef, useState } from "react";
-import { useMindmapStore } from "@/store/mindmapStore";
+import { useMindmapStore } from "../store/mindmapStore";
 
 import {
   Send,
@@ -23,15 +35,14 @@ export default function QueryBar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  const {
-    selectedNodeId,
-    addNode,
-    addEdge,
-    deselectAll,
-  } = useMindmapStore();
+  // --- Store: only the actions and state we need ---
+  const selectedNodeId = useMindmapStore((s) => s.ui.selectedNodeId);
+  const addNode = useMindmapStore((s) => s.addNode);
+  const deselectAll = useMindmapStore((s) => s.deselectAll);
 
   /* ============================
      MIC SETUP (Web Speech API)
+     Unchanged from original.
      ============================ */
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -51,7 +62,6 @@ export default function QueryBar() {
       const transcript = Array.from(event.results)
         .map((r: any) => r[0].transcript)
         .join("");
-
       setQuery(transcript);
     };
 
@@ -67,7 +77,6 @@ export default function QueryBar() {
       alert("Speech recognition not supported in this browser.");
       return;
     }
-
     if (isListening) {
       recognitionRef.current.stop();
       setIsListening(false);
@@ -92,31 +101,33 @@ export default function QueryBar() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: query.trim(),
-          parentId: selectedNodeId,
+          parentId: selectedNodeId, // null if no node selected → creates root
           model: "gemini",
         }),
       });
 
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok) throw new Error("Failed to create node");
 
       const data = await res.json();
 
+      // Build a GraphNode from the API response.
+      // parentId = selectedNodeId (null → root node, string → child of selected).
+      // The store's addNode() will:
+      //   1. Add the node to the graph
+      //   2. Auto-create the edge if parentId is set
+      //   3. Recompute layout via Dagre (no overlap possible)
       addNode({
         id: data.node.id,
-        type: "mindmap",
-        position: data.node.position,
-        data: {
-          query: data.node.query,
-          response: data.node.response,
-        },
+        parentId: selectedNodeId || null,
+        content: data.node.query,
+        response: data.node.response,
+        createdAt: data.node.createdAt || new Date().toISOString(),
       });
-
-      if (data.edge) addEdge(data.edge);
 
       setQuery("");
       deselectAll();
     } catch (err) {
-      console.error(err);
+      console.error("[QueryBar] Submit error:", err);
       alert("Failed to create node.");
     } finally {
       setIsLoading(false);
@@ -130,12 +141,15 @@ export default function QueryBar() {
     }
   };
 
+  /* ============================
+     RENDER (unchanged from original)
+     ============================ */
   return (
     <div className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[5000] w-full max-w-3xl px-4">
       <form onSubmit={handleSubmit}>
         <div className="relative bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] p-2.5 flex items-center gap-3">
 
-          {/* ✅ UNIFIED INDICATOR (FIXED ALIGNMENT) */}
+          {/* UNIFIED INDICATOR */}
           <div className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl transition-all duration-200 whitespace-nowrap ${
             selectedNodeId
               ? 'bg-blue-50 text-blue-600'
@@ -144,16 +158,12 @@ export default function QueryBar() {
             {selectedNodeId ? (
               <>
                 <CornerDownRight size={18} />
-                <span className="text-sm font-bold">
-                  Branching
-                </span>
+                <span className="text-sm font-bold">Branching</span>
               </>
             ) : (
               <>
                 <Plus size={18} />
-                <span className="text-sm font-bold">
-                  New Thread
-                </span>
+                <span className="text-sm font-bold">New Thread</span>
               </>
             )}
           </div>
@@ -173,7 +183,7 @@ export default function QueryBar() {
             className="flex-1 bg-transparent border-none outline-none text-base font-medium text-slate-700 py-3.5 px-3 placeholder:text-slate-400"
           />
 
-          {/* FILE */}
+          {/* FILE ATTACHMENT */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -183,7 +193,7 @@ export default function QueryBar() {
           </button>
           <input ref={fileInputRef} type="file" hidden />
 
-          {/* 🎤 MIC (FUNCTIONAL) */}
+          {/* MICROPHONE */}
           <button
             type="button"
             onClick={toggleMic}
@@ -196,7 +206,7 @@ export default function QueryBar() {
             {isListening ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
 
-          {/* SEND */}
+          {/* SEND / LOADING */}
           <AnimatePresence mode="wait">
             {isLoading ? (
               <motion.div

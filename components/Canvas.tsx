@@ -1,318 +1,387 @@
+// 'use client';
+
+// /**
+//  * Canvas.tsx — React Flow rendering layer
+//  *
+//  * Responsibilities:
+//  *   - Mount: fetch graph data from API, hydrate store
+//  *   - Render: convert store state → React Flow nodes/edges
+//  *   - Viewport: filter to visible nodes only (performance)
+//  *   - Interactions: node click (select), pane click (deselect), expand modal
+//  *
+//  * What this file does NOT do:
+//  *   - Layout computation (layout.ts + store handle this)
+//  *   - Graph mutations (store handles this)
+//  *   - Persistence (persistence.ts + API handles this)
+//  *   - Type definitions for the graph (graph.ts handles this)
+//  *
+//  * Data flow:
+//  *   API → store.hydrate() → store.graph + store.layout
+//  *   store.graph + store.layout → graphToReactFlowElements() → allNodes, allEdges
+//  *   allNodes + allEdges + viewport → filterToViewport() → visibleNodes, visibleEdges
+//  *   visibleNodes, visibleEdges → <ReactFlow> → DOM
+//  */
+
+// import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+
+// import ReactFlow, {
+//   Background,
+//   Controls,
+//   Node,
+//   Edge,
+//   ReactFlowInstance,
+//   BackgroundVariant,
+//   useNodesState,
+//   useEdgesState,
+// } from 'reactflow';
+// import 'reactflow/dist/style.css';
+
+// import MindmapNode from './MindmapNode';
+// import ExpansionModal from './ExpansionModal';
+
+// import { useMindmapStore } from '../store/mindmapStore';
+// import {
+//   graphToReactFlowElements,
+//   filterToViewport,
+//   computeViewportBounds,
+//   AIMindmapNodeData,
+// } from '../lib/reactFlowIntegration';
+
+// /* ============================================================
+//    NODE TYPES — registered once, stable reference
+// ============================================================ */
+
+// const nodeTypes = {
+//   mindmap: MindmapNode,
+// };
+
+// /* ============================================================
+//    CANVAS
+// ============================================================ */
+
+// export default function Canvas() {
+//   // --- Store access ---
+//   const { graph, layout, ui, hydrate, selectNode, deselectAll, expandNode } =
+//     useMindmapStore();
+
+//   // --- React Flow controlled state (what actually renders) ---
+//   const [localNodes, setLocalNodes, onNodesChange] = useNodesState<AIMindmapNodeData>([]);
+//   const [localEdges, setLocalEdges, onEdgesChange] = useEdgesState([]);
+
+//   // --- React Flow instance (for viewport reading) ---
+//   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+
+//   // --- Expansion modal ---
+//   const [expandedNodeData, setExpandedNodeData] = useState<AIMindmapNodeData | null>(null);
+
+//   // --- Viewport change trigger (increments on pan/zoom to re-run visibility filter) ---
+//   const [viewportTick, setViewportTick] = useState(0);
+//   const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+//   /* =================================================================
+//      MOUNT: fetch and hydrate
+//   ================================================================= */
+
+//   useEffect(() => {
+//     const load = async () => {
+//       try {
+//         const res = await fetch('/api/mindmap/load');
+//         if (!res.ok) throw new Error(`Load failed: ${res.status}`);
+//         const data = await res.json();
+
+//         // data.nodes is an array of GraphNode objects from the backend.
+//         // hydrate() topologically sorts them and builds the graph + layout.
+//         hydrate(data.nodes);
+//       } catch (err) {
+//         console.error('[Canvas] Failed to load mindmap:', err);
+//       }
+//     };
+//     load();
+//   }, [hydrate]);
+
+//   /* =================================================================
+//      EXPAND CALLBACK
+//      Passed down into each node's data so it can trigger the modal.
+//   ================================================================= */
+
+//   const handleExpandClick = useCallback((data: AIMindmapNodeData) => {
+//     setExpandedNodeData(data);
+//   }, []);
+
+//   /* =================================================================
+//      CONVERT: graph + layout → React Flow elements (all nodes)
+//      Memoized on graph and layout identity — only reruns when store changes.
+//   ================================================================= */
+
+//   const { nodes: allNodes, edges: allEdges } = useMemo(() => {
+//     return graphToReactFlowElements(graph, layout, handleExpandClick);
+//   }, [graph, layout, handleExpandClick]);
+
+//   /* =================================================================
+//      VIEWPORT FILTER: only render nodes near the camera
+//      Re-runs when:
+//        - allNodes/allEdges change (new data)
+//        - viewportTick changes (user panned/zoomed)
+//   ================================================================= */
+
+//   const { visibleNodes, visibleEdges } = useMemo(() => {
+//     if (!rfInstance) {
+//       // Before React Flow initializes, render everything (fitView will handle it)
+//       return { visibleNodes: allNodes, visibleEdges: allEdges };
+//     }
+
+//     const viewport = rfInstance.getViewport();
+//     const container = document.querySelector('.react-flow');
+//     const width = container?.clientWidth || window.innerWidth;
+//     const height = container?.clientHeight || window.innerHeight;
+
+//     const bounds = computeViewportBounds(width, height, viewport);
+
+//     return filterToViewport(allNodes, allEdges, layout, bounds);
+//   }, [allNodes, allEdges, layout, rfInstance, viewportTick]);
+
+//   /* =================================================================
+//      SYNC: push visible nodes/edges into React Flow's controlled state
+//   ================================================================= */
+
+//   useEffect(() => {
+//     setLocalNodes(visibleNodes);
+//   }, [visibleNodes, setLocalNodes]);
+
+//   useEffect(() => {
+//     setLocalEdges(visibleEdges);
+//   }, [visibleEdges, setLocalEdges]);
+
+//   /* =================================================================
+//      VIEWPORT CHANGE HANDLER
+//      Debounced at 100ms to avoid thrashing on smooth pan animations.
+//   ================================================================= */
+
+//   const handleViewportChange = useCallback(() => {
+//     if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
+//     viewportTimerRef.current = setTimeout(() => {
+//       setViewportTick((t) => t + 1);
+//     }, 100);
+//   }, []);
+
+//   /* =================================================================
+//      INTERACTION HANDLERS
+//   ================================================================= */
+
+//   const onNodeClick = useCallback(
+//     (_: React.MouseEvent, node: Node) => {
+//       selectNode(node.id);
+//     },
+//     [selectNode]
+//   );
+
+//   const onPaneClick = useCallback(() => {
+//     deselectAll();
+//   }, [deselectAll]);
+
+//   const onInit = useCallback((instance: ReactFlowInstance) => {
+//     setRfInstance(instance);
+//   }, []);
+
+//   /* =================================================================
+//      RENDER
+//   ================================================================= */
+
+//   return (
+//     <>
+//       <div className="w-full h-full bg-gray-50">
+//         <ReactFlow
+//           nodes={localNodes}
+//           edges={localEdges}
+//           onNodesChange={onNodesChange}
+//           onEdgesChange={onEdgesChange}
+//           onNodeClick={onNodeClick}
+//           onPaneClick={onPaneClick}
+//           onInit={onInit}
+//           onMove={handleViewportChange}
+//           onMoveEnd={handleViewportChange}
+//           nodeTypes={nodeTypes}
+//           nodesDraggable={false}
+//           nodesConnectable={false}
+//           fitView
+//           minZoom={0.1}
+//           maxZoom={2}
+//         >
+//           <Background
+//             variant={BackgroundVariant.Dots}
+//             gap={24}
+//             size={2}
+//             color="#d1d5db"
+//           />
+//           <Controls />
+//         </ReactFlow>
+//       </div>
+
+//       {/* Expansion modal — rendered when a node's "expand" button is clicked */}
+//       {expandedNodeData && (
+//         <ExpansionModal
+//           data={expandedNodeData}
+//           onClose={() => setExpandedNodeData(null)}
+//         />
+//       )}
+//     </>
+//   );
+// }
 'use client';
 
+/**
+ * Canvas.tsx — React Flow rendering layer
+ *
+ * Responsibilities:
+ *   - Mount: fetch graph data from API, hydrate store
+ *   - Render: convert store state → React Flow nodes/edges
+ *   - Viewport: filter to visible nodes only (performance)
+ *   - Interactions: node click (select), pane click (deselect), expand modal
+ *
+ * What this file does NOT do:
+ *   - Layout computation (layout.ts + store handle this)
+ *   - Graph mutations (store handles this)
+ *   - Persistence (persistence.ts + API handles this)
+ *   - Type definitions for the graph (graph.ts handles this)
+ *
+ * Data flow:
+ *   API → store.hydrate() → store.graph + store.layout
+ *   store.graph + store.layout → graphToReactFlowElements() → allNodes, allEdges
+ *   allNodes + allEdges + viewport → filterToViewport() → visibleNodes, visibleEdges
+ *   visibleNodes, visibleEdges → <ReactFlow> → DOM
+ */
+
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+
 import ReactFlow, {
   Background,
   Controls,
-  useNodesState,
-  useEdgesState,
-  BackgroundVariant,
   Node,
   Edge,
   ReactFlowInstance,
+  BackgroundVariant,
+  useNodesState,
+  useEdgesState,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import MindmapNode from './MindmapNode';
 import ExpansionModal from './ExpansionModal';
-import { useMindmapStore } from '@/store/mindmapStore';
-import { AIMindmapNodeData } from '../types';
+
+import { useMindmapStore } from '../store/mindmapStore';
+import {
+  graphToReactFlowElements,
+  filterToViewport,
+  computeViewportBounds,
+  AIMindmapNodeData,
+} from '../lib/reactFlowIntegration';
+
+/* ============================================================
+   NODE TYPES — registered once, stable reference
+============================================================ */
 
 const nodeTypes = {
   mindmap: MindmapNode,
 };
 
-/* =========================
-   CONSTANTS
-========================= */
-const defaultEdgeOptions = {
-  type: 'smoothstep',
-  animated: true,
-  style: {
-    strokeWidth: 2,
-    stroke: '#94a3b8',
-    strokeDasharray: '5 5',
-  },
-};
-
-const VIEWPORT_PADDING = 500;
-const NODE_WIDTH = 400;
-const NODE_HEIGHT = 250;
-const HORIZONTAL_SPACING = 450;
-const VERTICAL_SPACING = 300;
-const CHAIN_SPACING = 500;
-
-/* =========================
-   HELPER: Calculate Positions
-========================= */
-const calculateNodePositions = (
-  nodes: Node[],
-  edges: Edge[]
-): Node[] => {
-  if (!nodes.length) return [];
-
-  const positioned = [...nodes];
-  const processed = new Set<string>();
-
-  // Find root nodes (no incoming edges)
-  const roots = nodes.filter((n) => !edges.some((e) => e.target === n.id));
-
-  // Position root nodes vertically
-  roots.forEach((root, i) => {
-    const idx = positioned.findIndex((n) => n.id === root.id);
-    if (idx !== -1) {
-      positioned[idx] = {
-        ...positioned[idx],
-        position: { x: 0, y: i * CHAIN_SPACING },
-      };
-      processed.add(root.id);
-    }
-  });
-
-  // DFS to position children
-  const dfs = (parentId: string) => {
-    const parent = positioned.find((n) => n.id === parentId);
-    if (!parent) return;
-
-    const children = edges
-      .filter((e) => e.source === parentId)
-      .map((e) => positioned.find((n) => n.id === e.target))
-      .filter(Boolean) as Node[];
-
-    children.forEach((child, index) => {
-      if (processed.has(child.id)) return;
-
-      const idx = positioned.findIndex((n) => n.id === child.id);
-      if (idx !== -1) {
-        positioned[idx] = {
-          ...positioned[idx],
-          position: {
-            x: parent.position.x + HORIZONTAL_SPACING,
-            y: parent.position.y + index * VERTICAL_SPACING,
-          },
-        };
-        processed.add(child.id);
-        dfs(child.id);
-      }
-    });
-  };
-
-  roots.forEach((r) => dfs(r.id));
-  return positioned;
-};
-
-/* =========================
-   HELPER: Normalize Node Data
-========================= */
-const normalizeNodeData = (
-  node: Node,
-  onExpand: (data: AIMindmapNodeData) => void
-): Node => {
-  // Generate timestamp if missing
-  let timestamp = node.data?.timestamp;
-  if (!timestamp) {
-    const dateStr = node.data?.createdAt || new Date().toISOString();
-    timestamp = new Date(dateStr).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
-
-  // Ensure all required fields are present
-  const question = node.data?.question || node.data?.fullQuestion || node.data?.query || '';
-  const response = node.data?.response || node.data?.fullResponse || '';
-  const fullQuestion = node.data?.fullQuestion || node.data?.question || node.data?.query || '';
-  const fullResponse = node.data?.fullResponse || node.data?.response || '';
-
-  return {
-    ...node,
-    data: {
-      ...node.data,
-      question,
-      response,
-      timestamp,
-      fullQuestion,
-      fullResponse,
-      createdAt: node.data?.createdAt || new Date().toISOString(),
-      onExpand,
-    } as AIMindmapNodeData,
-  };
-};
+/* ============================================================
+   CANVAS
+============================================================ */
 
 export default function Canvas() {
-  const { nodes, edges, setNodes, setEdges, selectNode, deselectAll } =
+  // --- Store access ---
+  const { graph, layout, ui, hydrate, selectNode, deselectAll, expandNode } =
     useMindmapStore();
 
-  const [localNodes, setLocalNodes, onNodesChange] = useNodesState([]);
+  // --- React Flow controlled state (what actually renders) ---
+  const [localNodes, setLocalNodes, onNodesChange] = useNodesState<AIMindmapNodeData>([]);
   const [localEdges, setLocalEdges, onEdgesChange] = useEdgesState([]);
-  const [expandedNode, setExpandedNode] = useState<AIMindmapNodeData | null>(null);
-  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
-  
-  // Full dataset (all nodes/edges)
-  const [allNodes, setAllNodes] = useState<Node[]>([]);
-  const [allEdges, setAllEdges] = useState<Edge[]>([]);
-  
-  // Track viewport changes with debouncing
-  const [viewportChangeCount, setViewportChangeCount] = useState(0);
-  const viewportTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  /* =========================
-     VIEWPORT BOUNDS CALCULATOR
-  ========================= */
-  const getViewportBounds = useCallback(() => {
-    if (!reactFlowInstance) return null;
+  // --- React Flow instance (for viewport reading) ---
+  const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
 
-    const viewport = reactFlowInstance.getViewport();
-    const { x, y, zoom } = viewport;
-    
-    const canvasElement = document.querySelector('.react-flow');
-    const width = canvasElement?.clientWidth || window.innerWidth;
-    const height = canvasElement?.clientHeight || window.innerHeight;
+  // --- Expansion modal ---
+  const [expandedNodeData, setExpandedNodeData] = useState<AIMindmapNodeData | null>(null);
 
-    const minX = (-x - VIEWPORT_PADDING) / zoom;
-    const maxX = (width - x + VIEWPORT_PADDING) / zoom;
-    const minY = (-y - VIEWPORT_PADDING) / zoom;
-    const maxY = (height - y + VIEWPORT_PADDING) / zoom;
+  // --- Viewport change trigger (increments on pan/zoom to re-run visibility filter) ---
+  const [viewportTick, setViewportTick] = useState(0);
+  const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    return { minX, maxX, minY, maxY };
-  }, [reactFlowInstance]);
+  /* =================================================================
+     MOUNT: fetch and hydrate
+  ================================================================= */
 
-  /* =========================
-     VISIBILITY CHECKER
-  ========================= */
-  const isNodeVisible = useCallback(
-    (node: Node, bounds: ReturnType<typeof getViewportBounds>) => {
-      if (!bounds) return true;
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/mindmap/load');
+        if (!res.ok) throw new Error(`Load failed: ${res.status}`);
+        const data = await res.json();
 
-      const { minX, maxX, minY, maxY } = bounds;
-      const nodeX = node.position.x;
-      const nodeY = node.position.y;
+        // Backend returns nodes with "query" field, but GraphNode expects "content".
+        // Transform the response to match our type system.
+        const transformedNodes = data.nodes.map((node: any) => ({
+          id: node.id,
+          parentId: node.parentId,
+          content: node.query,  // Map backend's "query" → frontend's "content"
+          response: node.response,
+          createdAt: node.createdAt,
+          metadata: node.metadata,
+        }));
 
-      return (
-        nodeX + NODE_WIDTH >= minX &&
-        nodeX <= maxX &&
-        nodeY + NODE_HEIGHT >= minY &&
-        nodeY <= maxY
-      );
-    },
-    []
-  );
+        hydrate(transformedNodes);
+      } catch (err) {
+        console.error('[Canvas] Failed to load mindmap:', err);
+      }
+    };
+    load();
+  }, [hydrate]);
 
-  /* =========================
-     FILTER VISIBLE NODES/EDGES
-  ========================= */
+  /* =================================================================
+     EXPAND CALLBACK
+     Passed down into each node's data so it can trigger the modal.
+  ================================================================= */
+
+  const handleExpandClick = useCallback((data: AIMindmapNodeData) => {
+    setExpandedNodeData(data);
+  }, []);
+
+  /* =================================================================
+     CONVERT: graph + layout → React Flow elements (all nodes)
+     Memoized on graph and layout identity — only reruns when store changes.
+  ================================================================= */
+
+  const { nodes: allNodes, edges: allEdges } = useMemo(() => {
+    return graphToReactFlowElements(graph, layout, handleExpandClick);
+  }, [graph, layout, handleExpandClick]);
+
+  /* =================================================================
+     VIEWPORT FILTER: only render nodes near the camera
+     Re-runs when:
+       - allNodes/allEdges change (new data)
+       - viewportTick changes (user panned/zoomed)
+  ================================================================= */
+
   const { visibleNodes, visibleEdges } = useMemo(() => {
-    const bounds = getViewportBounds();
-    
-    // If no bounds or no nodes, show everything
-    if (!bounds || allNodes.length === 0) {
+    if (!rfInstance) {
+      // Before React Flow initializes, render everything (fitView will handle it)
       return { visibleNodes: allNodes, visibleEdges: allEdges };
     }
 
-    // Filter visible nodes
-    const visible = allNodes.filter((node) => isNodeVisible(node, bounds));
-    const visibleNodeIds = new Set(visible.map((n) => n.id));
+    const viewport = rfInstance.getViewport();
+    const container = document.querySelector('.react-flow');
+    const width = container?.clientWidth || window.innerWidth;
+    const height = container?.clientHeight || window.innerHeight;
 
-    // Filter edges - show if both nodes are visible OR if we're showing all
-    const relevantEdges = allEdges.filter((edge) => {
-      const sourceVisible = visibleNodeIds.has(edge.source);
-      const targetVisible = visibleNodeIds.has(edge.target);
-      return sourceVisible && targetVisible;
-    });
+    const bounds = computeViewportBounds(width, height, viewport);
 
-    return { visibleNodes: visible, visibleEdges: relevantEdges };
-  }, [allNodes, allEdges, getViewportBounds, isNodeVisible, viewportChangeCount]);
+    return filterToViewport(allNodes, allEdges, layout, bounds);
+  }, [allNodes, allEdges, layout, rfInstance, viewportTick]);
 
-  /* =========================
-     LOAD INITIAL DATA
-  ========================= */
-  useEffect(() => {
-    const loadMindmap = async () => {
-      try {
-        const res = await fetch('/api/mindmap/load');
-        if (!res.ok) {
-          throw new Error(`Failed to load mindmap: ${res.statusText}`);
-        }
-        
-        const data = await res.json();
+  /* =================================================================
+     SYNC: push visible nodes/edges into React Flow's controlled state
+  ================================================================= */
 
-        const flowNodes: Node[] = (data.nodes || []).map((node: any) => {
-          const createdAt = node.createdAt ?? new Date().toISOString();
-          const timestamp = new Date(createdAt).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-
-          return {
-            id: node.id,
-            type: 'mindmap',
-            position: { x: 0, y: 0 },
-            draggable: false,
-            selectable: true,
-            data: {
-              question: node.query || node.question || '',
-              response: node.response || '',
-              timestamp,
-              createdAt,
-              fullQuestion: node.query || node.question || '',
-              fullResponse: node.response || '',
-              onExpand: setExpandedNode,
-            } as AIMindmapNodeData,
-          };
-        });
-
-        const flowEdges: Edge[] = (data.edges || []).map((edge: any) => ({
-          ...defaultEdgeOptions,
-          ...edge,
-          animated: true,
-        }));
-
-        const positioned = calculateNodePositions(flowNodes, flowEdges);
-
-        setAllNodes(positioned);
-        setAllEdges(flowEdges);
-        setNodes(positioned);
-        setEdges(flowEdges);
-      } catch (error) {
-        console.error('Failed to load mindmap:', error);
-        // Initialize with empty state on error
-        setAllNodes([]);
-        setAllEdges([]);
-      }
-    };
-
-    loadMindmap();
-  }, []); // Only run once on mount
-
-  /* =========================
-   SYNC STORE → ALL NODES/EDGES
-   This runs whenever store updates (new nodes added)
-========================= */
-  useEffect(() => {
-    // Normalize all nodes with proper data
-    const normalizedNodes = nodes.map((node) => 
-      normalizeNodeData(node, setExpandedNode)
-    );
-
-    // Calculate positions (handles new nodes)
-    const positionedNodes = calculateNodePositions(normalizedNodes, edges);
-    
-    // Update full dataset
-    setAllNodes(positionedNodes);
-  }, [nodes, edges]);
-
-  useEffect(() => {
-    const normalizedEdges = edges.map((edge) => ({
-      ...defaultEdgeOptions,
-      ...edge,
-      animated: true,
-    }));
-    setAllEdges(normalizedEdges);
-  }, [edges]);
-
-  /* =========================
-     SYNC VISIBLE → LOCAL STATE
-  ========================= */
   useEffect(() => {
     setLocalNodes(visibleNodes);
   }, [visibleNodes, setLocalNodes]);
@@ -321,100 +390,46 @@ export default function Canvas() {
     setLocalEdges(visibleEdges);
   }, [visibleEdges, setLocalEdges]);
 
-  /* =========================
+  /* =================================================================
      VIEWPORT CHANGE HANDLER
-  ========================= */
+     Debounced at 100ms to avoid thrashing on smooth pan animations.
+  ================================================================= */
+
   const handleViewportChange = useCallback(() => {
-    // Debounce viewport changes
-    if (viewportTimerRef.current) {
-      clearTimeout(viewportTimerRef.current);
-    }
-    
+    if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
     viewportTimerRef.current = setTimeout(() => {
-      setViewportChangeCount((prev) => prev + 1);
+      setViewportTick((t) => t + 1);
     }, 100);
   }, []);
 
-  /* =========================
-     INTERACTIONS
-  ========================= */
+  /* =================================================================
+     INTERACTION HANDLERS
+  ================================================================= */
+
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => selectNode(node.id),
+    (_: React.MouseEvent, node: Node) => {
+      selectNode(node.id);
+    },
     [selectNode]
   );
 
-  const onPaneClick = useCallback(() => deselectAll(), [deselectAll]);
+  const onPaneClick = useCallback(() => {
+    deselectAll();
+  }, [deselectAll]);
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
-    setReactFlowInstance(instance);
+    setRfInstance(instance);
   }, []);
 
-  /* =========================
-     CLEANUP
-  ========================= */
-  useEffect(() => {
-    return () => {
-      if (viewportTimerRef.current) {
-        clearTimeout(viewportTimerRef.current);
-      }
-    };
-  }, []);
-
-  /* =========================
-     DEV LOGGING
-  ========================= */
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      const renderPercentage = allNodes.length > 0 
-        ? ((visibleNodes.length / allNodes.length) * 100).toFixed(1)
-        : '0.0';
-      
-      console.log(`📊 Canvas Stats:
-        Total: ${allNodes.length} nodes, ${allEdges.length} edges
-        Visible: ${visibleNodes.length} nodes, ${visibleEdges.length} edges
-        Efficiency: ${renderPercentage}%
-      `);
-    }
-  }, [allNodes.length, visibleNodes.length, allEdges.length, visibleEdges.length]);
+  /* =================================================================
+     RENDER
+  ================================================================= */
 
   return (
     <>
-      <div className="w-full h-full bg-gray-50">
-        <ReactFlow
-          nodes={localNodes}
-          edges={localEdges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={onNodeClick}
-          onPaneClick={onPaneClick}
-          onInit={onInit}
-          onMove={handleViewportChange}
-          onMoveEnd={handleViewportChange}
-          
-          nodeTypes={nodeTypes}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          fitView
-          defaultEdgeOptions={defaultEdgeOptions}
-          minZoom={0.1}
-          maxZoom={2}
-          // Performance optimizations
-          selectNodesOnDrag={false}
-          panOnDrag={true}
-          zoomOnScroll={true}
-          zoomOnPinch={true}
-          preventScrolling={true}
-        >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={24}
-            size={2}
-            color="#d1d5db"
-          />
-          <Controls />
-        </ReactFlow>
+      <div className="w-full h-full relative bg-gray-50">
 
-        {/* Performance Indicator - DEV ONLY */}
+        {/* Performance Indicator — DEV ONLY */}
         {process.env.NODE_ENV === 'development' && allNodes.length > 0 && (
           <div className="pointer-events-none absolute top-4 left-4 z-50">
             <div className="min-w-[220px] rounded-xl border border-white/10 bg-black/70 backdrop-blur-xl px-4 py-3 text-white shadow-xl">
@@ -424,18 +439,15 @@ export default function Canvas() {
                 </span>
                 <span className="text-[10px] font-mono text-blue-500">DEV</span>
               </div>
-
               <div className="space-y-1.5 text-xs font-mono">
                 <div className="flex justify-between text-white/80">
                   <span>Total nodes</span>
                   <span>{allNodes.length}</span>
                 </div>
-
                 <div className="flex justify-between text-white/80">
                   <span>Visible nodes</span>
                   <span>{visibleNodes.length}</span>
                 </div>
-
                 <div className="mt-2">
                   <div className="mb-1 flex justify-between text-[10px] text-white/60">
                     <span>Render efficiency</span>
@@ -443,7 +455,6 @@ export default function Canvas() {
                       {((visibleNodes.length / Math.max(allNodes.length, 1)) * 100).toFixed(1)}%
                     </span>
                   </div>
-
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600 transition-all duration-300"
@@ -460,10 +471,40 @@ export default function Canvas() {
             </div>
           </div>
         )}
+
+        <ReactFlow
+          nodes={localNodes}
+          edges={localEdges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
+          onInit={onInit}
+          onMove={handleViewportChange}
+          onMoveEnd={handleViewportChange}
+          nodeTypes={nodeTypes}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          fitView
+          minZoom={0.1}
+          maxZoom={2}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={24}
+            size={2}
+            color="#d1d5db"
+          />
+          <Controls />
+        </ReactFlow>
       </div>
 
-      {expandedNode && (
-        <ExpansionModal data={expandedNode} onClose={() => setExpandedNode(null)} />
+      {/* Expansion modal — rendered when a node's "expand" button is clicked */}
+      {expandedNodeData && (
+        <ExpansionModal
+          data={expandedNodeData}
+          onClose={() => setExpandedNodeData(null)}
+        />
       )}
     </>
   );
