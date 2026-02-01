@@ -3,7 +3,7 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import ReactMarkdown from 'react-markdown';
-import { AIMindmapNodeData } from '../types';
+import { AIMindmapNodeData } from '../lib/reactFlowIntegration';
 import { truncateWords } from '../lib/text';
 import { Maximize2 } from 'lucide-react';
 

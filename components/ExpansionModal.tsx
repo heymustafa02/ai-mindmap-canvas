@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { X, Clock, MessageSquare, Bot } from 'lucide-react';
-import { AIMindmapNodeData } from '../types';
+import { AIMindmapNodeData } from '../lib/reactFlowIntegration';
 
 interface ExpansionModalProps {
   data: AIMindmapNodeData | null;
