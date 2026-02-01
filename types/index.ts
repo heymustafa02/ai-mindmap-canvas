@@ -2,28 +2,28 @@ import { Node, Edge } from 'reactflow';
 
 
 
-export interface AIMindmapNodeData {
-  question: string;
-  response: string;
-  timestamp: string;
-  fullQuestion: string;
-  fullResponse: string;
-  onExpand: (data: AIMindmapNodeData) => void;
-}
+// export interface AIMindmapNodeData {
+//   question: string;
+//   response: string;
+//   timestamp: string;
+//   fullQuestion: string;
+//   fullResponse: string;
+//   onExpand: (data: AIMindmapNodeData) => void;
+// }
 
 export interface NodePosition {
   x: number;
   y: number;
 }
 
-export interface ConversationNode {
-  id: string;
-  type: 'aiLogic';
-  position: NodePosition;
-  data: AIMindmapNodeData;
-  draggable: boolean;
-  selectable: boolean;
-}
+// export interface ConversationNode {
+//   id: string;
+//   type: 'aiLogic';
+//   position: NodePosition;
+//   data: AIMindmapNodeData;
+//   draggable: boolean;
+//   selectable: boolean;
+// }
 
 export interface ConversationEdge {
   id: string;
