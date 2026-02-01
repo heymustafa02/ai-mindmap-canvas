@@ -1,15 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Mail, Lock, ArrowRight, Loader2, Info, Eye, EyeOff  } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Loader2, Info, Eye, EyeOff } from 'lucide-react';
 
-export default function LoginPage() {
-
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-const [showPassword, setShowPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -53,7 +52,6 @@ const [showPassword, setShowPassword] = useState(false);
     }
   };
 
-
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center bg-[#fafafa] p-4 overflow-hidden">
       {/* Background decor */}
@@ -73,7 +71,6 @@ const [showPassword, setShowPassword] = useState(false);
           <h1 className="text-3xl font-black tracking-tighter text-slate-900">
             AI MINDMAP CANVAS
           </h1>
-          
         </div>
 
         {/* Card */}
@@ -121,38 +118,37 @@ const [showPassword, setShowPassword] = useState(false);
 
             {/* Password */}
             <div className="space-y-2">
-  <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1">
-    Password
-  </label>
+              <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1">
+                Password
+              </label>
 
-  <div className="relative">
-    <Lock
-      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-      size={18}
-    />
+              <div className="relative">
+                <Lock
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={18}
+                />
 
-    <input
-      type={showPassword ? 'text' : 'password'}
-      required
-      value={formData.password}
-      onChange={(e) =>
-        setFormData({ ...formData, password: e.target.value })
-      }
-      placeholder="••••••••"
-      className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-12 text-sm font-medium text-slate-900 outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/20 focus:bg-white"
-    />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={formData.password}
+                  onChange={(e) =>
+                    setFormData({ ...formData, password: e.target.value })
+                  }
+                  placeholder="••••••••"
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-12 text-sm font-medium text-slate-900 outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/20 focus:bg-white"
+                />
 
-    <button
-      type="button"
-      onClick={() => setShowPassword((v) => !v)}
-      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-      aria-label={showPassword ? 'Hide password' : 'Show password'}
-    >
-      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-    </button>
-  </div>
-</div>
-
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
 
             {/* Submit */}
             <button
@@ -185,5 +181,13 @@ const [showPassword, setShowPassword] = useState(false);
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }
