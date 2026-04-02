@@ -18,16 +18,17 @@ I built this project as part of a take‑home challenge for a Front End Engineer
 
 ---
 
-## Demo Video
+## Demo Videos
 
-A short Loom video demonstrates:
+I’ve recorded two short Loom videos to walk through the project and its architecture:
 
-1. The spatial canvas and node interactions
-2. Persistence across page reloads
-3. Authentication and lazy loading behavior
-
-Loom link:
+**1. Product Walkthrough**
+Covers the core experience — the spatial canvas, node interactions, persistence across reloads, authentication, and lazy loading.
 https://www.loom.com/share/69429adf7d364013ab062f65b6de8549
+
+**2. Architecture & Scalability**
+Explains the underlying architecture, key design decisions, and how the system is structured to handle performance and scale as the graph grows.
+https://www.loom.com/share/22b5c6d0395047cb9545739d626cece3
 
 ---
 
